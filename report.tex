@@ -25,7 +25,7 @@
 \raggedbottom
 
 \title{\vspace{-1.5em}\textbf{Question Answering with a Custom Transformer Encoder and Generative Decoder}\vspace{-0.5em}}
-\author{\href{https://github.com/Harsha081459/Question-Answering-System-with-a-Custom-Transformer-Encoder-and-Generative-Decoder}{\textbf{[GitHub]}} \quad $\mid$ \quad \href{https://iiitbac-my.sharepoint.com/:f:/r/personal/vishal_sriram_iiitb_ac_in/Documents/NLP_GROUP_18}{\textbf{[Weights -- OneDrive]}}}
+\author{\href{https://github.com/Harsha081459/-Question-Answering-System-with-a-Custom-Transformer-Encoder-and-Generative-Decoder}{\textbf{[GitHub]}} \quad $\mid$ \quad \href{https://iiitbac-my.sharepoint.com/:f:/g/personal/vishal_sriram_iiitb_ac_in/IgBJMBmHEodfQba6fYpup9aiAdhsUH577v5oWa_W0i20VqM?e=j7DCc6}{\textbf{[Weights -- OneDrive]}}}
 \date{}
 
 \begin{document}
@@ -80,7 +80,118 @@ In generative QA, unified text-to-text Transformers like T5 \cite{raffel2020t5} 
 
 % ══════════════════════════════════════════════════════════════
 \section{System Architecture}
-The pipeline shared all processing up to the encoder output, then branched into an extractive head or a generative decoder. This design ensured that the same passage understanding supported both span selection and text generation.
+
+The system was designed around a single shared encoder whose contextual
+representations power two structurally distinct inference heads. This
+unified backbone architecture reflects a deliberate engineering choice:
+rather than training separate models for extractive and generative QA,
+we exploit the fact that both tasks require the same fundamental
+capability --- grounding token-level representations in the joint
+context of a question and a supporting passage.
+
+\subsection{Input Representation}
+Both inference paths begin with identical preprocessing. The question
+and context are concatenated using the standard BERT-style
+\texttt{[CLS] Q [SEP] C [SEP]} template. Three embedding matrices are
+summed to form the initial token representation: a token embedding
+($|\mathcal{V}| \times 768$), a learned positional embedding (up to
+512 positions), and a segment embedding that distinguishes question
+tokens (type~0) from context tokens (type~1). The summed embeddings
+are passed through layer normalization and dropout before entering the
+encoder stack.
+
+\subsection{Shared Transformer Encoder}
+The encoder is a 12-layer bidirectional Transformer. Each layer
+applies pre-layer-norm multi-head self-attention (12 heads,
+$d_k = d_v = 64$) followed by a two-layer feed-forward network with
+hidden dimension 3072 and GELU activation. Residual connections wrap
+both sub-layers. The full sequence output
+$\mathbf{H} \in \mathbb{R}^{L \times 768}$ is passed to both
+downstream heads, where $L$ is the padded sequence length (capped
+at 256 tokens with a doc stride of 64 for long contexts).
+
+The pre-norm variant was chosen over the original post-norm BERT
+design because it yields more stable gradients during fine-tuning,
+particularly when the encoder is jointly optimized with the decoder
+at a lower learning rate.
+
+\subsection{Extractive Head}
+The extractive head is a single linear projection
+$\mathbf{W} \in \mathbb{R}^{768 \times 2}$ applied independently to
+every encoder output token. This produces two scalar logits per
+position: $s_i$ (start score) and $e_i$ (end score). At inference
+time, the top-$n_{\text{best}}$ start positions are enumerated and
+paired with all legal end positions to form candidate spans. Each span is scored by summing its start and end logits, and the highest-scoring valid
+span is returned as the extracted answer. For unanswerable questions
+(SQuAD v2 no-answer instances), the score of the \texttt{[CLS]} token
+logit serves as the null-answer score; if it exceeds the best span
+score by a tuned threshold $\tau$, the model abstains.
+
+\subsection{Encoder--Decoder Bridge}
+Because the encoder operates in a 768-dimensional space while the
+decoder uses a 512-dimensional space, a learned linear projection
+$\mathbf{W}_{\text{bridge}} \in \mathbb{R}^{768 \times 512}$ maps
+the full encoder memory $\mathbf{H}$ into the decoder's key--value
+space before each cross-attention layer. This projection is trained
+jointly with the decoder and allows the two modules to operate at
+different widths without any information bottleneck beyond what
+the linear map can express.
+
+\subsection{Generative Decoder}
+The generative decoder is a 4-layer autoregressive Transformer with
+hidden dimension 512 and 8 attention heads ($d_k = d_v = 64$). Each
+decoder block applies three sub-layers in sequence, each wrapped in a
+pre-norm residual:
+
+\begin{enumerate}[leftmargin=1.2em,noitemsep,topsep=2pt]
+    \item \textbf{Masked self-attention.} Attends over all previously
+    generated tokens using a causal mask, building up a
+    representation of the partial answer prefix.
+    \item \textbf{Cross-attention.} Queries the projected encoder
+    memory $\mathbf{W}_{\text{bridge}}\mathbf{H}$ to ground each
+    decoding step in the source context, directly suppressing
+    hallucination.
+    \item \textbf{Feed-forward network.} A two-layer FFN (hidden dim
+    2048, GELU) refines the attended representation before the
+    next layer.
+\end{enumerate}
+
+Token generation is initiated with a \texttt{[BOS]} token and
+terminated by \texttt{[EOS]} or the \texttt{max\_new\_tokens=12}
+hard cap, whichever comes first. Decoding uses greedy search
+(\texttt{beam=1}) with a length penalty of 0.4 to discourage
+unnecessarily short outputs. Embedding weights are tied between the
+decoder input embedding matrix and the final linear projection head,
+reducing the parameter count and regularizing the output distribution.
+
+\subsection{No-Answer Gating}
+Both heads implement a no-answer abstention mechanism, but using
+different signals. The extractive head uses a threshold on the
+\texttt{[CLS]} logit margin, while the generative head compares the
+token-level log-probability of the generated sequence against the
+log-probability of a fixed no-answer template string
+(\textit{``unanswerable''}). If the template scores higher by a
+tuned margin $\delta$, the model outputs \textit{``Context has no
+answer''} rather than a generated span.
+
+\subsection{Design Rationale}
+The decision to share a single encoder across both heads rather than
+training two separate models offered three concrete advantages. First,
+it halved the pretraining compute required to obtain a strong
+contextual representation. Second, it enabled direct apples-to-apples
+comparison of extractive and generative decoding strategies on
+identical encoder representations. Third, the unified architecture
+made the demo deployment simpler: a single forward pass through the
+encoder feeds both heads, and the user can switch between modes
+without reloading weights.
+
+The asymmetric width (768 encoder vs.\ 512 decoder) was a deliberate
+capacity trade-off. The encoder must model long bidirectional context
+over question-passage pairs of up to 256 tokens, requiring greater
+width. The decoder generates short answers (median 3--4 tokens in
+SQuAD), so a narrower 512-dimensional space is sufficient and reduces
+the decoder parameter count by roughly 40\% compared to a
+width-matched design.
 
 \begin{figure*}[!t]
 \centering
@@ -131,10 +242,9 @@ $\times12$ layers: self-attention ($\times12$ heads) + FFN(3072)\\
 {\small Extractive:} \texttt{Rollo} (span from passage) \quad {\small Generative:} \texttt{Rollo} (generated) \quad {\small No-answer:} \texttt{Context has no answer}};
 
 \end{tikzpicture}
-\caption{System architecture with a concrete example. The shared encoder (Stage~2) processes the question-context pair into contextual representations $\mathbf{H} \in \mathbb{R}^{L \times 768}$. Two task-specific heads branch (Stage~3): extractive QA selects a span via n-best search, while generative QA decodes token-by-token.}
+\caption{System architecture.}
 \end{figure*}
 
-For the extractive path, two scalar heads scored each token as a possible start or end position, enabling rapid n-best span search. The generative path required a more complex structure: the decoder ingested previously generated tokens, attended to its own prefix via masked self-attention, queried the encoder memory via cross-attention, and predicted the next token autoregressively.
 
 \begin{figure*}[htbp]
 \centering
@@ -239,23 +349,17 @@ For the extractive path, two scalar heads scored each token as a possible start 
 \draw[arr] (dec_head.south) -- (gen_out.north);
 
 \end{tikzpicture}
-\caption{Detailed encoder and decoder architecture. The encoder (top) is a
-12-layer, 768-hidden BERT-style stack whose output branches into an
-extractive QA head (start/end logits) and an encoder--decoder bridge
-(Linear $768\!\to\!512$); the bridge feeds cross-attention inside the
-4-block custom decoder (bottom), which produces the final answer tokens.}
+\caption{Detailed encoder and decoder architecture.}
 \label{fig:encdec}
 \end{figure*}
 
 % ══════════════════════════════════════════════════════════════
+\newpage
 \section{Method}
-
 \subsection{Encoder Pretraining}
 The pipeline was grounded in a custom Transformer encoder pretrained from scratch using masked language modeling (MLM). 15\% of input tokens were randomly masked using the 80/10/10 replacement strategy, and the model learned to predict the original tokens from surrounding context. Pretraining used an interleaved stream of Wikipedia (70\%) and C4 (30\%) data.
-
 \subsection{Extractive Span Prediction}
 For extractive QA, the pretrained encoder was equipped with a linear head that predicted start and end logits for each token position. At inference time, the system searched over the top $n_{\text{best}}$ start/end pairs, validated spans against a maximum answer length constraint, and selected the highest-scoring valid span. For unanswerable questions, the CLS token logit was compared against the best span score via a tuned threshold.
-
 \subsection{Generative Decoder}
 The generative decoder was the main architectural contribution. Each of the four decoder blocks applied three operations in sequence:
 \begin{enumerate}[leftmargin=1.2em,noitemsep,topsep=2pt]
@@ -264,10 +368,8 @@ The generative decoder was the main architectural contribution. Each of the four
     \item Feed-forward refinement with residual connection.
 \end{enumerate}
 This arrangement forced the decoder to stay anchored to the encoder's contextual evidence, reducing hallucination and sentence-copying behavior.
-
 \subsection{Decoding and No-Answer Gating}
 To produce concise outputs, we constrained decoding to greedy mode (\texttt{beam=1}), a strict \texttt{max\_new\_tokens=12} limit, and a length penalty of 0.4. For unanswerable questions, the system computed the log-probability of the generated answer and compared it against the log-probability of a fixed no-answer template. If the difference crossed a tuned threshold, the model abstained.
-
 \subsection{Loss Functions}
 We optimized three task-specific losses:
 \begin{equation}
@@ -282,7 +384,6 @@ for extractive start/end supervision.
 \mathcal{L}_{\text{gen}} = \mathrm{CE}(\hat{y}_{1:T}, y_{1:T};\, \texttt{ignore\_index}=-100,\, \epsilon_{ls}),
 \end{equation}
 for teacher-forced autoregressive decoding with label smoothing $\epsilon_{ls} = 0.05$.
-
 % ══════════════════════════════════════════════════════════════
 \section{Experimental Setup}
 
