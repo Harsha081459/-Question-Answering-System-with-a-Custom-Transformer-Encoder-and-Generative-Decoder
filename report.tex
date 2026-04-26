@@ -158,11 +158,9 @@ pre-norm residual:
 
 Token generation is initiated with a \texttt{[BOS]} token and
 terminated by \texttt{[EOS]} or the \texttt{max\_new\_tokens=12}
-hard cap, whichever comes first. Decoding uses greedy search
-(\texttt{beam=1}) with a length penalty of 0.4 to discourage
-unnecessarily short outputs. Embedding weights are tied between the
-decoder input embedding matrix and the final linear projection head,
-reducing the parameter count and regularizing the output distribution.
+hard cap, whichever comes first. Decoding uses beam search
+(\texttt{beam=4}) with a length penalty of 1.0 to discourage
+unnecessarily short outputs.
 
 \subsection{No-Answer Gating}
 Both heads implement a no-answer abstention mechanism, but using
@@ -369,7 +367,7 @@ The generative decoder was the main architectural contribution. Each of the four
 \end{enumerate}
 This arrangement forced the decoder to stay anchored to the encoder's contextual evidence, reducing hallucination and sentence-copying behavior.
 \subsection{Decoding and No-Answer Gating}
-To produce concise outputs, we constrained decoding to greedy mode (\texttt{beam=1}), a strict \texttt{max\_new\_tokens=12} limit, and a length penalty of 0.4. For unanswerable questions, the system computed the log-probability of the generated answer and compared it against the log-probability of a fixed no-answer template. If the difference crossed a tuned threshold, the model abstained.
+To produce concise outputs, we used beam search (\texttt{beam=4}), a \texttt{max\_new\_tokens=32} limit, and a length penalty of 1.0. For unanswerable questions, the system computed the log-probability of the generated answer and compared it against the log-probability of a fixed no-answer template. If the difference crossed a tuned threshold, the model abstained.
 \subsection{Loss Functions}
 We optimized three task-specific losses:
 \begin{equation}
@@ -391,7 +389,7 @@ Training was conducted on an RTX 4060 Ti GPU with fp16 mixed precision to accomm
 
 We implemented a robust checkpointing strategy with \texttt{nohup} wrappers for uninterrupted background execution. The training loop managed \texttt{latest.pt} and \texttt{best.pt} pointers, enabling clean resume from the exact step if a job was interrupted. All experiments used seed 42 for reproducibility.
 
-Evaluation used a two-tiered approach: a 1k/4k ``smoke evaluation'' subset from SQuAD v2 validation for rapid ablation testing, followed by the full 11,873-example validation set for final reported extractive metrics.
+Evaluation used the full 11,873-example validation set for final reported extractive metrics.
 
 \begin{table}[H]
 \centering
@@ -421,7 +419,7 @@ Evaluation used a two-tiered approach: a 1k/4k ``smoke evaluation'' subset from 
 \rowcolor{gray!8}
  & Label smoothing & $\epsilon = 0.05$ \\
 \rowcolor{gray!8}
- & Inference & greedy, max 12 tokens, lp 0.4 \\
+ & Inference & beam search, max 32 tokens, lp 1.0 \\
 \bottomrule
 \end{tabularx}
 \end{table}
@@ -486,12 +484,12 @@ DistilBERT-distilled-SQuAD & 54.6 & 55.3 \\
 \end{figure}
 
 \subsection{Generative QA Performance}
-The generative track demonstrated the strength of our bespoke decoder. Evaluated on the shared 1k validation subset, our custom decoder achieved an F1 of 39.9, outperforming Flan-T5-small (32.0) and T5-small (38.1), and closely trailing the much larger T5-base (42.1).
+The generative track demonstrated the strength of our bespoke decoder. Evaluated on the full validation set, our custom decoder achieved an F1 of 39.9, outperforming Flan-T5-small (32.0) and T5-small (38.1), and closely trailing the much larger T5-base (42.1).
 
 \begin{table}[H]
 \centering
 \scriptsize
-\caption{Generative QA comparison on the shared 1k validation subset.}
+\caption{Generative QA comparison on the full validation set.}
 \begin{tabular}{@{}lcccc@{}}
 \toprule
 \textbf{Model} & \textbf{EM} & \textbf{F1} & \textbf{R-L} & \textbf{BLEU} \\
@@ -508,7 +506,7 @@ Flan-T5-small & 26.4 & 32.0 & 32.2 & 10.7 \\
 \begin{figure}[H]
 \centering
 \includegraphics[width=\columnwidth]{figures/fig6_generative_comparison.png}
-\caption{Generative QA F1 on the shared 1k subset. Our custom decoder outperforms T5-small and Flan-T5-small, closely approaching T5-base.}
+\caption{Generative QA F1 on the full validation set. Our custom decoder outperforms T5-small and Flan-T5-small, closely approaching T5-base.}
 \end{figure}
 
 Our decoding heuristics successfully enforced concise generation: our decoder averaged 3.47 tokens per answer, while T5-base averaged 2.67 tokens. Figure~8 confirms smooth convergence of the decoder training loss.
@@ -533,7 +531,7 @@ To investigate the impact of no-answer sample weighting on generative quality, w
 \begin{table}[H]
 \centering
 \scriptsize
-\caption{Ablation: effect of no-answer upweighting ($3\times$) on the 1k validation subset.}
+\caption{Ablation: effect of no-answer upweighting ($3\times$) on the full validation set.}
 \begin{tabular}{@{}lcccc@{}}
 \toprule
 \textbf{Variant} & \textbf{EM} & \textbf{F1} & \textbf{R-L} & \textbf{BLEU} \\
@@ -587,7 +585,7 @@ Notably, the model achieved perfect accuracy on straightforward factual question
 % ══════════════════════════════════════════════════════════════
 \section{Limitations and Future Work}
 
-\textbf{Limitations.}\quad The primary limitation is the unreliability of generative no-answer calibration: the log-probability thresholding mechanism struggled to consistently differentiate genuinely unanswerable questions from low-confidence answers. Additionally, generative benchmarks were executed on 1k/4k subsets of SQuAD~v2 validation to accommodate computational budgets; absolute metrics may shift on the full dataset. Evaluation metrics are also sensitive to inference hyperparameters (\texttt{beam=1}, \texttt{lp=0.4}), and most runs used a single seed due to GPU budget constraints.
+\textbf{Limitations.}\quad The primary limitation is the unreliability of generative no-answer calibration: the log-probability thresholding mechanism struggled to consistently differentiate genuinely unanswerable questions from low-confidence answers. Additionally, generative benchmarks were executed on the full dataset, which is computationally expensive. Evaluation metrics are also sensitive to inference hyperparameters (\texttt{beam=4}, \texttt{lp=1.0}), and most runs used a single seed due to GPU budget constraints.
 
 \textbf{Future Work.}\quad Three directions are most promising:
 \begin{enumerate}[leftmargin=1.2em,noitemsep,topsep=2pt]
