@@ -1,0 +1,255 @@
+# =============================================================================
+# BERT Pretraining Configuration
+# =============================================================================
+# BERT-base architecture optimized for 16GB GPU
+# Modular config for easy experimentation
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Model Architecture (BERT-base)
+# -----------------------------------------------------------------------------
+model:
+  name: "bert-base-uncased"
+  type: "bert"
+  
+  # Core architecture
+  num_hidden_layers: 12
+  hidden_size: 768
+  num_attention_heads: 12
+  intermediate_size: 3072  # 4 * hidden_size
+  
+  # Embeddings
+  vocab_size: 30000
+  max_position_embeddings: 512
+  type_vocab_size: 2  # For segment embeddings (sentence A/B)
+  
+  # Regularization
+  hidden_dropout_prob: 0.1
+  attention_probs_dropout_prob: 0.1
+  
+  # Activation
+  hidden_act: "gelu"
+  
+  # Layer norm
+  layer_norm_eps: 1.0e-12
+  
+  # Initialization
+  initializer_range: 0.02
+
+# -----------------------------------------------------------------------------
+# Tokenizer Settings
+# -----------------------------------------------------------------------------
+tokenizer:
+  type: "wordpiece"
+  vocab_file: null  # Path to vocab.txt (set before training)
+  do_lower_case: true
+  
+  # Special tokens
+  unk_token: "[UNK]"
+  sep_token: "[SEP]"
+  pad_token: "[PAD]"
+  cls_token: "[CLS]"
+  mask_token: "[MASK]"
+  
+  # Tokenization settings
+  max_length: 512
+  truncation: true
+  padding: "max_length"
+
+# -----------------------------------------------------------------------------
+# Data Pipeline
+# -----------------------------------------------------------------------------
+data:
+  # Dataset source
+  dataset_name: "wikipedia"
+  dataset_config: "20220301.en"
+  streaming: true  # Enable streaming for large datasets
+  
+  # Preprocessing
+  preprocessing_num_workers: 4
+  text_column: "text"
+  
+  # Sequence length curriculum
+  # Phase 1: Train with shorter sequences for efficiency
+  # Phase 2: Extend to full length for position embedding learning
+  sequence_length:
+    phase_1:
+      max_seq_length: 128
+      steps: 450000  # ~90% of training
+    phase_2:
+      max_seq_length: 512
+      steps: 50000   # ~10% of training
+  
+  # Masking configuration
+  masking:
+    mlm_probability: 0.15
+    # Of masked tokens: 80% [MASK], 10% random, 10% unchanged
+    mask_token_prob: 0.8
+    random_token_prob: 0.1
+    keep_original_prob: 0.1
+    dynamic_masking: true  # Generate masks on-the-fly
+  
+  # Next Sentence Prediction
+  nsp:
+    enabled: true
+    probability: 0.5  # 50% random next sentence
+  
+  # Experiment toggles
+  use_nsp: true                    # Toggle NSP task on/off
+  use_whole_word_masking: true     # Mask entire words, not subwords
+  
+  # Data loading
+  shuffle_buffer_size: 10000
+  prefetch_factor: 2
+
+# -----------------------------------------------------------------------------
+# Training Configuration
+# -----------------------------------------------------------------------------
+training:
+  # Output
+  output_dir: "./bert_pretrain_output"
+  run_name: "bert-base-wikipedia"
+  
+  # Total training steps
+  max_steps: 500000
+  
+  # Batch size optimization for 16GB GPU
+  # Effective batch size = per_device * gradient_accumulation * num_gpus
+  # 8 * 16 * 1 = 128 (single GPU)
+  per_device_train_batch_size: 8
+  gradient_accumulation_steps: 16  # Effective batch size: 128
+  
+  # For phase 2 (seq_len=512), reduce batch size
+  phase_2_batch_size: 4
+  phase_2_gradient_accumulation: 32  # Still effective batch size: 128
+  
+  # Learning rate schedule
+  learning_rate: 1.0e-4
+  warmup_steps: 50000  # 10% of total steps
+  warmup_ratio: 0.1
+  lr_scheduler_type: "linear"  # Linear decay after warmup
+  
+  # Gradient settings
+  max_grad_norm: 1.0
+  gradient_checkpointing: true  # Save memory on 16GB GPU
+  
+  # Logging
+  logging_dir: "./logs"
+  logging_steps: 100
+  logging_first_step: true
+  report_to: ["tensorboard"]  # Options: tensorboard, wandb, mlflow
+  
+  # Evaluation
+  evaluation_strategy: "steps"
+  eval_steps: 5000
+  per_device_eval_batch_size: 16
+  
+  # Early stopping (optional)
+  early_stopping:
+    enabled: false
+    patience: 5
+    threshold: 0.001
+
+# -----------------------------------------------------------------------------
+# Optimizer Configuration
+# -----------------------------------------------------------------------------
+optimizer:
+  name: "adamw"
+  
+  # AdamW parameters
+  learning_rate: 1.0e-4
+  weight_decay: 0.01
+  beta1: 0.9
+  beta2: 0.999
+  epsilon: 1.0e-6
+  
+  # Layer-wise learning rate decay (optional)
+  layerwise_lr_decay:
+    enabled: false
+    decay_rate: 0.95
+  
+  # Parameters to exclude from weight decay
+  no_decay_params:
+    - "bias"
+    - "LayerNorm.weight"
+    - "LayerNorm.bias"
+
+# -----------------------------------------------------------------------------
+# Checkpoint Configuration
+# -----------------------------------------------------------------------------
+checkpoint:
+  # Saving
+  save_strategy: "steps"
+  save_steps: 5000
+  save_total_limit: 5  # Keep only last 5 checkpoints
+  
+  # Loading
+  resume_from_checkpoint: null  # Path to resume training
+  
+  # Best model
+  load_best_model_at_end: true
+  metric_for_best_model: "loss"
+  greater_is_better: false
+  
+  # Model artifacts
+  save_safetensors: true
+  save_optimizer_states: true
+
+# -----------------------------------------------------------------------------
+# System Configuration
+# -----------------------------------------------------------------------------
+system:
+  # Device settings
+  device: "cuda"
+  cuda_enabled: true
+  
+  # Mixed precision training
+  fp16: true
+  fp16_opt_level: "O1"
+  bf16: false  # Set true if using Ampere+ GPU (A100, etc.)
+  
+  # Memory optimization
+  dataloader_num_workers: 4
+  dataloader_pin_memory: true
+  
+  # Reproducibility
+  seed: 42
+  deterministic: true
+  
+  # Distributed training (single GPU setup)
+  local_rank: -1
+  ddp_backend: "nccl"
+  
+  # Performance
+  torch_compile: false  # Enable for PyTorch 2.0+
+  compile_mode: "default"  # Options: default, reduce-overhead, max-autotune
+
+# -----------------------------------------------------------------------------
+# Experiment Toggles (for ablation studies)
+# -----------------------------------------------------------------------------
+experiments:
+  # Task toggles
+  use_nsp: true                    # Enable/disable Next Sentence Prediction
+  use_whole_word_masking: true     # Mask whole words vs subword tokens
+  
+  # Architecture variants
+  use_relative_position: false     # Use relative position embeddings
+  use_prenorm: false               # Pre-LayerNorm vs Post-LayerNorm
+  
+  # Training variants
+  use_gradient_checkpointing: true
+  use_fused_adam: true             # Use NVIDIA apex fused optimizer
+  
+  # Data variants
+  use_dynamic_masking: true        # Generate masks per batch vs cached
+  use_sentence_order_prediction: false  # ALBERT-style SOP instead of NSP
+
+# -----------------------------------------------------------------------------
+# Paths (set before training)
+# -----------------------------------------------------------------------------
+paths:
+  data_dir: "./data"
+  cache_dir: "./cache"
+  vocab_file: "./vocab.txt"
+  output_dir: "./bert_pretrain_output"
+  log_dir: "./logs"

@@ -1,0 +1,599 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>QA Studio - Local Extractive + Generative</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --bg-0: #060b1d;
+        --bg-1: #0a1432;
+        --panel: rgba(13, 22, 52, 0.75);
+        --panel-strong: rgba(15, 26, 62, 0.9);
+        --panel-border: rgba(126, 177, 255, 0.22);
+        --text: #e8f1ff;
+        --muted: #9db1de;
+        --good: #29cf8f;
+        --bad: #ff916b;
+        --pending: #f0be63;
+        --error: #ff7f97;
+        --shadow: 0 25px 70px rgba(0, 0, 0, 0.4);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        min-height: 100%;
+      }
+
+      body {
+        font-family: "Manrope", "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+        color: var(--text);
+        background:
+          radial-gradient(1100px 800px at 5% -10%, rgba(78, 166, 255, 0.24), transparent 55%),
+          radial-gradient(900px 700px at 95% -20%, rgba(123, 100, 255, 0.22), transparent 58%),
+          linear-gradient(165deg, var(--bg-0) 0%, var(--bg-1) 45%, #070d23 100%);
+        display: flex;
+        justify-content: center;
+        padding: 44px 16px 56px;
+        opacity: 0;
+        transform: translateY(16px);
+        transition: opacity 0.75s ease, transform 0.75s ease;
+      }
+
+      body.ready {
+        opacity: 1;
+        transform: translateY(0);
+      }
+
+      .shell {
+        width: min(920px, 100%);
+        border-radius: 22px;
+        padding: 28px;
+        background: linear-gradient(175deg, var(--panel) 0%, var(--panel-strong) 100%);
+        border: 1px solid var(--panel-border);
+        box-shadow: var(--shadow);
+      }
+
+      .kicker {
+        display: inline-flex;
+        align-items: center;
+        border-radius: 999px;
+        border: 1px solid rgba(122, 169, 255, 0.38);
+        background: rgba(78, 166, 255, 0.08);
+        color: #bdd8ff;
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        padding: 8px 12px;
+        margin-bottom: 14px;
+      }
+
+      h1 {
+        margin: 0;
+        font-family: "Space Grotesk", "Manrope", sans-serif;
+        font-size: clamp(1.7rem, 1.2rem + 1.8vw, 2.6rem);
+        line-height: 1.15;
+        letter-spacing: -0.02em;
+      }
+
+      .sub {
+        margin-top: 10px;
+        color: var(--muted);
+        font-size: 0.98rem;
+        line-height: 1.65;
+      }
+
+      .stack {
+        display: grid;
+        gap: 16px;
+        margin-top: 20px;
+      }
+
+      .field {
+        display: grid;
+        gap: 8px;
+      }
+
+      .label-row {
+        display: flex;
+        justify-content: space-between;
+        gap: 10px;
+        align-items: baseline;
+      }
+
+      label {
+        font-weight: 700;
+      }
+
+      .meta {
+        font-size: 0.82rem;
+        color: #aac2ef;
+      }
+
+      input,
+      select,
+      textarea {
+        width: 100%;
+        border: 1px solid rgba(128, 163, 232, 0.28);
+        background: rgba(8, 14, 34, 0.74);
+        color: var(--text);
+        border-radius: 14px;
+        padding: 13px 14px;
+        outline: none;
+        font: inherit;
+      }
+
+      input:focus,
+      select:focus,
+      textarea:focus {
+        border-color: rgba(91, 165, 255, 0.8);
+        box-shadow:
+          0 0 0 4px rgba(78, 166, 255, 0.16),
+          0 12px 34px rgba(78, 166, 255, 0.16);
+      }
+
+      textarea {
+        resize: vertical;
+        min-height: 190px;
+        line-height: 1.6;
+      }
+
+      .actions {
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+
+      button {
+        border: 0;
+        cursor: pointer;
+        border-radius: 14px;
+        padding: 13px 18px;
+        font: inherit;
+        font-weight: 800;
+      }
+
+      .btn-secondary {
+        background: linear-gradient(150deg, rgba(170, 199, 255, 0.35), rgba(122, 153, 219, 0.3));
+        color: #deedff;
+        border: 1px solid rgba(157, 183, 241, 0.35);
+      }
+
+      .btn-primary {
+        background: linear-gradient(138deg, #69c1ff 0%, #7a7cff 55%, #9f67ff 100%);
+        color: #07192d;
+        width: 100%;
+        min-height: 56px;
+        display: inline-flex;
+        justify-content: center;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .dot-loader {
+        display: inline-flex;
+        gap: 4px;
+      }
+
+      .dot-loader span {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: #10284f;
+        opacity: 0.35;
+        animation: pulse 0.9s infinite ease-in-out;
+      }
+
+      .dot-loader span:nth-child(2) {
+        animation-delay: 0.12s;
+      }
+
+      .dot-loader span:nth-child(3) {
+        animation-delay: 0.24s;
+      }
+
+      @keyframes pulse {
+        0%,
+        100% {
+          opacity: 0.25;
+          transform: translateY(0);
+        }
+        50% {
+          opacity: 1;
+          transform: translateY(-2px);
+        }
+      }
+
+      .hidden {
+        display: none !important;
+      }
+
+      .error {
+        margin: 4px 0 0;
+        border-radius: 10px;
+        padding: 10px 12px;
+        background: rgba(255, 127, 151, 0.12);
+        border: 1px solid rgba(255, 127, 151, 0.35);
+        color: #ffd8e1;
+      }
+
+      .result-card {
+        margin-top: 16px;
+        border-radius: 16px;
+        padding: 16px;
+        border: 1px solid rgba(130, 167, 238, 0.26);
+        background: rgba(8, 14, 35, 0.76);
+        opacity: 0;
+        transform: translateY(8px);
+        transition: opacity 0.35s ease, transform 0.35s ease;
+      }
+
+      .result-card.visible {
+        opacity: 1;
+        transform: translateY(0);
+      }
+
+      .result-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 10px;
+      }
+
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        padding: 6px 10px;
+        border-radius: 999px;
+        font-size: 0.78rem;
+        font-weight: 800;
+        text-transform: uppercase;
+      }
+
+      .badge.answerable {
+        color: #052214;
+        background: linear-gradient(140deg, #5de2a9, #28c98c);
+      }
+
+      .badge.no-answer {
+        color: #2d0c02;
+        background: linear-gradient(140deg, #ffc084, #ff8f6b);
+      }
+
+      .badge.pending {
+        color: #2c2200;
+        background: linear-gradient(140deg, #f6d489, #efbc63);
+      }
+
+      .answer-text {
+        font-size: clamp(1rem, 0.95rem + 0.25vw, 1.14rem);
+        line-height: 1.6;
+        min-height: 72px;
+        white-space: pre-wrap;
+      }
+
+      .answer-text.shimmer {
+        min-height: 88px;
+        border-radius: 10px;
+        background:
+          linear-gradient(90deg, rgba(116, 152, 221, 0.07) 25%, rgba(180, 210, 255, 0.18) 37%, rgba(116, 152, 221, 0.07) 63%);
+        background-size: 280% 100%;
+        animation: shimmer 1.25s infinite linear;
+      }
+
+      @keyframes shimmer {
+        0% {
+          background-position: 100% 0;
+        }
+        100% {
+          background-position: 0 0;
+        }
+      }
+
+      .usage {
+        margin-top: 10px;
+        color: #98aed9;
+        font-size: 0.82rem;
+      }
+
+      @media (max-width: 760px) {
+        .shell {
+          padding: 20px;
+          border-radius: 18px;
+        }
+
+        .actions {
+          flex-direction: column;
+        }
+
+        .btn-secondary {
+          width: 100%;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="shell">
+      <div class="kicker">Local project models</div>
+      <h1>Question Answering Playground</h1>
+      <p class="sub">
+        Choose Extractive or Generative mode. Both run on saved checkpoints from this repo. No Anthropic API key is required.
+      </p>
+
+      <section class="stack">
+        <div class="field">
+          <div class="label-row">
+            <label for="apiEndpoint">Local API Endpoint</label>
+          </div>
+          <input id="apiEndpoint" type="text" value="http://127.0.0.1:8001/api/answer" />
+        </div>
+
+        <div class="field">
+          <div class="label-row">
+            <label for="modeSelect">QA Mode</label>
+          </div>
+          <select id="modeSelect">
+            <option value="extractive" selected>Extractive QA (span-based)</option>
+            <option value="generative">Generative QA (text generation)</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <div class="label-row">
+            <label for="contextInput">Context Paragraph</label>
+            <span id="contextStats" class="meta">0 characters | 0 words</span>
+          </div>
+          <textarea id="contextInput" rows="9" placeholder="Paste a passage here..."></textarea>
+        </div>
+
+        <div class="field">
+          <label for="questionInput">Question</label>
+          <input id="questionInput" type="text" placeholder="Ask something that can be answered from the context." />
+        </div>
+
+        <div class="actions">
+          <button id="exampleBtn" type="button" class="btn-secondary">Try answerable example</button>
+          <button id="noAnswerBtn" type="button" class="btn-secondary">Try no-answer example</button>
+          <button id="clearBtn" type="button" class="btn-secondary">Clear</button>
+        </div>
+
+        <button id="submitBtn" type="button" class="btn-primary">
+          <span id="submitLabel">Get Answer</span>
+          <span id="dotLoader" class="dot-loader hidden"><span></span><span></span><span></span></span>
+        </button>
+
+        <p id="errorMsg" class="error hidden"></p>
+
+        <article id="answerCard" class="result-card hidden" aria-live="polite">
+          <div class="result-head">
+            <strong>Answer</strong>
+            <span id="statusBadge" class="badge pending">Analyzing</span>
+          </div>
+          <div id="answerText" class="answer-text"></div>
+          <div id="usageInfo" class="usage"></div>
+        </article>
+      </section>
+    </main>
+
+    <script>
+      const NO_ANSWER_TEXT = "The context does not contain the answer.";
+
+      const apiEndpointEl = document.getElementById("apiEndpoint");
+      const modeSelectEl = document.getElementById("modeSelect");
+      const contextEl = document.getElementById("contextInput");
+      const questionEl = document.getElementById("questionInput");
+      const contextStatsEl = document.getElementById("contextStats");
+      const exampleBtn = document.getElementById("exampleBtn");
+      const noAnswerBtn = document.getElementById("noAnswerBtn");
+      const clearBtn = document.getElementById("clearBtn");
+      const submitBtn = document.getElementById("submitBtn");
+      const submitLabel = document.getElementById("submitLabel");
+      const dotLoader = document.getElementById("dotLoader");
+      const errorMsg = document.getElementById("errorMsg");
+      const answerCard = document.getElementById("answerCard");
+      const statusBadge = document.getElementById("statusBadge");
+      const answerText = document.getElementById("answerText");
+      const usageInfo = document.getElementById("usageInfo");
+
+      let typewriterTimer = null;
+      requestAnimationFrame(() => document.body.classList.add("ready"));
+
+      function updateModeUI() {
+        return;
+      }
+
+      function updateContextStats() {
+        const text = contextEl.value.trim();
+        const charCount = contextEl.value.length;
+        const wordCount = text ? text.split(/\s+/).length : 0;
+        contextStatsEl.textContent = `${charCount} characters | ${wordCount} words`;
+      }
+
+      function showError(message) {
+        errorMsg.textContent = message;
+        errorMsg.classList.remove("hidden");
+      }
+
+      function clearError() {
+        errorMsg.textContent = "";
+        errorMsg.classList.add("hidden");
+      }
+
+      function setLoading(isLoading) {
+        submitBtn.disabled = isLoading;
+        submitLabel.textContent = isLoading ? "Thinking" : "Get Answer";
+        dotLoader.classList.toggle("hidden", !isLoading);
+
+        if (isLoading) {
+          answerCard.classList.remove("hidden");
+          answerCard.classList.add("visible");
+          statusBadge.className = "badge pending";
+          statusBadge.textContent = "Analyzing";
+          usageInfo.textContent = "";
+          answerText.textContent = "";
+          answerText.classList.add("shimmer");
+        }
+      }
+
+      function stopTypewriter() {
+        if (typewriterTimer) {
+          clearInterval(typewriterTimer);
+          typewriterTimer = null;
+        }
+      }
+
+      function typewriter(text) {
+        stopTypewriter();
+        answerText.textContent = "";
+        let idx = 0;
+        typewriterTimer = setInterval(() => {
+          answerText.textContent += text.charAt(idx);
+          idx += 1;
+          if (idx >= text.length) {
+            stopTypewriter();
+          }
+        }, 16);
+      }
+
+      function normalizeNoAnswer(answer) {
+        const cleaned = answer.trim().replace(/^['\"]|['\"]$/g, "");
+        return cleaned === NO_ANSWER_TEXT || cleaned.length === 0;
+      }
+
+      async function getAnswer() {
+        clearError();
+
+        const endpoint = apiEndpointEl.value.trim();
+        const mode = modeSelectEl.value;
+        const context = contextEl.value.trim();
+        const question = questionEl.value.trim();
+
+        if (!endpoint) {
+          showError("Please enter the local API endpoint.");
+          return;
+        }
+        if (!context) {
+          showError("Please provide a context paragraph.");
+          return;
+        }
+        if (!question) {
+          showError("Please provide a question.");
+          return;
+        }
+
+        setLoading(true);
+
+        try {
+          const body = { mode, context, question };
+
+          const res = await fetch(endpoint, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+          });
+
+          let data;
+          try {
+            data = await res.json();
+          } catch (_) {
+            data = null;
+          }
+
+          if (!res.ok) {
+            const msg = data && data.error ? data.error : `Request failed with status ${res.status}`;
+            throw new Error(msg);
+          }
+
+          const answer = data && typeof data.answer === "string" ? data.answer : "";
+          const isNoAnswer = Boolean(data && data.predict_no_answer) || normalizeNoAnswer(answer);
+          const finalText = answer || NO_ANSWER_TEXT;
+
+          answerText.classList.remove("shimmer");
+          typewriter(finalText);
+
+          statusBadge.className = isNoAnswer ? "badge no-answer" : "badge answerable";
+          statusBadge.textContent = isNoAnswer ? "No Answer Found" : "Answerable";
+
+          const modelName = data && data.model_name ? data.model_name : "local_model";
+          const modeText = data && data.mode ? data.mode : mode;
+          let extra = "";
+
+          if (data && data.meta) {
+            if (typeof data.meta.score_diff_null_minus_span === "number") {
+              extra = ` | score_diff_null_minus_span: ${data.meta.score_diff_null_minus_span.toFixed(4)}`;
+            } else if (data.meta.gate && typeof data.meta.gate.score_diff === "number") {
+              extra = ` | gate_score_diff: ${data.meta.gate.score_diff.toFixed(4)}`;
+            }
+          }
+
+          usageInfo.textContent = `Mode: ${modeText} | Model: ${modelName}${extra}`;
+
+          answerCard.classList.remove("hidden");
+          answerCard.classList.add("visible");
+        } catch (err) {
+          answerText.classList.remove("shimmer");
+          answerCard.classList.add("hidden");
+          const msg = err instanceof Error ? err.message : "Unable to get answer from local model.";
+          showError(`Could not fetch an answer: ${msg}`);
+        } finally {
+          setLoading(false);
+        }
+      }
+
+      function fillAnswerableExample() {
+        contextEl.value =
+          "The Hubble Space Telescope is a space telescope launched into low Earth orbit in 1990. It was developed by NASA with contributions from the European Space Agency. Hubble has delivered high-resolution observations that helped scientists measure the rate of expansion of the universe.";
+        questionEl.value = "When was the Hubble Space Telescope launched?";
+        clearError();
+        updateContextStats();
+      }
+
+      function fillNoAnswerExample() {
+        contextEl.value =
+          "Mars is the fourth planet from the Sun and is often called the Red Planet. It has two small moons, Phobos and Deimos, and features the largest volcano in the solar system, Olympus Mons.";
+        questionEl.value = "Who won the Nobel Peace Prize in 2023?";
+        clearError();
+        updateContextStats();
+      }
+
+      function clearAll() {
+        stopTypewriter();
+        contextEl.value = "";
+        questionEl.value = "";
+        answerText.textContent = "";
+        usageInfo.textContent = "";
+        answerCard.classList.add("hidden");
+        clearError();
+        updateContextStats();
+      }
+
+      modeSelectEl.addEventListener("change", updateModeUI);
+      contextEl.addEventListener("input", updateContextStats);
+      submitBtn.addEventListener("click", getAnswer);
+      exampleBtn.addEventListener("click", fillAnswerableExample);
+      noAnswerBtn.addEventListener("click", fillNoAnswerExample);
+      clearBtn.addEventListener("click", clearAll);
+      questionEl.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" && !event.shiftKey) {
+          event.preventDefault();
+          getAnswer();
+        }
+      });
+
+      updateModeUI();
+      updateContextStats();
+    </script>
+  </body>
+</html>
